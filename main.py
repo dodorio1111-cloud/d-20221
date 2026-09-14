@@ -49,11 +49,12 @@ filtered_df = df[df['영화명'] == selected_movie]
 # --- [5. 기타 (구역 나누기 및 그래프 그리기)] ---
 
 # 탭(Tab)으로 구역을 나누어 여러 그래프를 깔끔하게 보여줍니다.
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 개별 영화 일별 관객수", 
     "📊 개별 영화 누적관객수", 
     "🏆 20일 이상 등재 Top 5 비교",
-    "📉 전체 관객수 7일 이동평균"
+    "📉 전체 관객수 7일 이동평균",
+    "📊 월별 전체 관객수 합계"
 ])
 
 with tab1:
@@ -179,3 +180,32 @@ with tab4:
     
     # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
     st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 주말/평일 변동성이 제거된 전체 극장가 관객 흐름, 성수기/비성수기 트렌드 변화 등을 적어주세요.)")
+
+with tab5:
+    # --- [다섯 번째 그래프: 월별 전체 관객수 막대그래프] ---
+    
+    # 1. '기준일자'에서 연-월(YYYY-MM) 정보를 추출하여 새로운 컬럼을 만듭니다.
+    daily_total['연월'] = daily_total['기준일자'].dt.to_period('M').astype(str)
+    
+    # 2. 월(연월) 단위로 그룹화하여 해당일관객수의 총합을 구합니다.
+    monthly_total = daily_total.groupby('연월')['해당일관객수'].sum().reset_index()
+    
+    # 3. Plotly 막대그래프(Bar Chart) 생성
+    fig5 = px.bar(
+        monthly_total,
+        x='연월',
+        y='해당일관객수',
+        title="📊 월별 전체 극장가 총 관객수 합계",
+        labels={'연월': '월(Year-Month)', '해당일관객수': '총 관객수'},
+        text_auto=True # 막대 상단에 자동으로 관객수 수치를 표시합니다.
+    )
+    
+    # 막대 색상 및 레이아웃을 다듬습니다.
+    fig5.update_traces(marker_color='mediumseagreen', textposition='outside')
+    fig5.update_layout(xaxis_type='category') # 월 라벨이 뭉쳐서 생략되지 않도록 범주형으로 설정합니다.
+    
+    # Streamlit 화면에 다섯 번째 그래프를 출력합니다.
+    st.plotly_chart(fig5, use_container_width=True)
+    
+    # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
+    st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 연중 극장가 최고 성수기 월과 비성수기 월 비교, 월별 관객 규모 패턴 등을 적어주세요.)")
