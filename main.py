@@ -49,13 +49,12 @@ filtered_df = df[df['영화명'] == selected_movie]
 # --- [5. 기타 (구역 나누기 및 그래프 그리기)] ---
 
 # 탭(Tab)으로 구역을 나누어 여러 그래프를 깔끔하게 보여줍니다.
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📈 개별 영화 일별 관객수", 
     "📊 개별 영화 누적관객수", 
     "🏆 20일 이상 등재 Top 5 비교",
     "📉 전체 관객수 7일 이동평균",
-    "📊 월별 전체 관객수 합계",
-    "🗓️ 관객수 캘린더 히트맵"
+    "📊 월별 전체 관객수 합계"
 ])
 
 with tab1:
@@ -210,52 +209,3 @@ with tab5:
     
     # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
     st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 연중 극장가 최고 성수기 월과 비성수기 월 비교, 월별 관객 규모 패턴 등을 적어주세요.)")
-
-with tab6:
-    # --- [수정된 여섯 번째 그래프: ValueError 방지용 안전 캘린더 히트맵] ---
-    
-    calendar_df = daily_total.copy()
-    
-    # 요일 변환 (월: 0 ~ 일: 6)
-    weekday_map = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금', 5: '토', 6: '일'}
-    calendar_df['요일'] = calendar_df['기준일자'].dt.weekday.map(weekday_map)
-    
-    # Y축 기준: YYYY-MM N주차 (주차 계산 오류 방지를 위해 ISO 주차 사용)
-    calendar_df['월'] = calendar_df['기준일자'].dt.strftime('%Y-%m')
-    calendar_df['주차'] = calendar_df['기준일자'].apply(lambda d: (d.day - 1) // 7 + 1)
-    calendar_df['월_주차'] = calendar_df['월'] + " " + calendar_df['주차'].astype(str) + "주차"
-    
-    # yyyy-mm-dd 텍스트 저장
-    calendar_df['날짜_str'] = calendar_df['기준일자'].dt.strftime('%Y-%m-%d')
-    
-    # pivot 대신 pivot_table을 사용하여 중복 및 ValueError 에러 방지
-    pivot_z = calendar_df.pivot_table(index='월_주차', columns='요일', values='해당일관객수', aggfunc='sum')
-    pivot_text = calendar_df.pivot_table(index='월_주차', columns='요일', values='날짜_str', aggfunc='first')
-    
-    # 요일 순서를 월~일로 정렬 및 빈 곳은 빈 문자열/0 처리
-    weekday_order = ['월', '화', '수', '목', '금', '토', '일']
-    pivot_z = pivot_z.reindex(columns=weekday_order).fillna(0)
-    pivot_text = pivot_text.reindex(columns=weekday_order).fillna("-")
-    
-    # Plotly go.Heatmap 생성
-    fig6 = go.Figure(data=go.Heatmap(
-        z=pivot_z.values,
-        x=weekday_order,
-        y=pivot_z.index,
-        customdata=pivot_text.values,
-        colorscale='Reds',
-        hovertemplate="<b>날짜: %{customdata}</b><br>요일: %{x}<br>총 관객수: %{z:,.0f}명<extra></extra>"
-    ))
-    
-    fig6.update_layout(
-        title="🗓️ 일별 총 관객수 캘린더 히트맵 (월~일 순서)",
-        xaxis_title="요일",
-        yaxis_title="월 / 주차",
-        yaxis=dict(autorange="reverse") # 최신 주차가 위에 오도록 배치
-    )
-    
-    # Streamlit 화면에 여섯 번째 그래프를 출력합니다.
-    st.plotly_chart(fig6, use_container_width=True)
-    
-    # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
-    st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 주말(토/일)과 평일(월~목) 간의 관객수 격차, 연휴나 특정 기념일에 붉은색이 집중되는 현상 등을 적어주세요.)")
