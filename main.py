@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
 # --- [1. 데이터 불러오기] 및 [2. 날짜 전처리] ---
 
@@ -48,10 +49,11 @@ filtered_df = df[df['영화명'] == selected_movie]
 # --- [5. 기타 (구역 나누기 및 그래프 그리기)] ---
 
 # 탭(Tab)으로 구역을 나누어 여러 그래프를 깔끔하게 보여줍니다.
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📈 개별 영화 일별 관객수", 
     "📊 개별 영화 누적관객수", 
-    "🏆 20일 이상 등재 Top 5 비교"
+    "🏆 20일 이상 등재 Top 5 비교",
+    "📉 전체 관객수 7일 이동평균"
 ])
 
 with tab1:
@@ -93,7 +95,7 @@ with tab2:
     st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 시간이 지남에 따라 누적관객수가 어떻게 쌓였는지, 최종 관객수가 얼마인지 등을 적어주세요.)")
 
 with tab3:
-    # --- [수정된 세 번째 그래프: 조건부 다중 선그래프] ---
+    # --- [세 번째 그래프: 조건부 다중 선그래프] ---
     
     # 1. 영화별로 TOP10에 등장한 일수(행 수)를 계산합니다.
     days_count = df.groupby('영화명')['기준일자'].count()
@@ -115,7 +117,7 @@ with tab3:
     # 4. 상위 5개 영화의 데이터만 추출합니다.
     top5_df = df[df['영화명'].isin(top5_filtered_movies)]
     
-    # 5. Plotly multi-line chart 생성 (color='영화명'으로 범례 및 색상 구분)
+    # 5. Plotly multi-line chart 생성
     fig3 = px.line(
         top5_df,
         x='기준일자',
@@ -132,3 +134,48 @@ with tab3:
     
     # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
     st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 20일 이상 장기 흥행한 영화들 중 누적관객수 성장 속도 및 최종 흥행 성과 차이 등을 적어주세요.)")
+
+with tab4:
+    # --- [네 번째 그래프: 전체 관객수 7일 이동평균선] ---
+    
+    # 1. 기준일자별로 TOP10 영화 전체의 해당일관객수를 합산합니다.
+    daily_total = df.groupby('기준일자')['해당일관객수'].sum().reset_index()
+    
+    # 2. 합계 데이터에 대해 7일 이동평균(Rolling Mean)을 구합니다.
+    daily_total['7일_이동평균'] = daily_total['해당일관객수'].rolling(window=7).mean()
+    
+    # 3. graph_objects를 사용하여 원본 선과 이동평균 선을 겹쳐서 그립니다.
+    fig4 = go.Figure()
+    
+    # 일별 일일 관객수 합계 (연한 색상)
+    fig4.add_trace(go.Scatter(
+        x=daily_total['기준일자'],
+        y=daily_total['해당일관객수'],
+        mode='lines',
+        name='일별 총 관객수',
+        line=dict(color='lightskyblue', width=1.5),
+        opacity=0.6
+    ))
+    
+    # 7일 이동평균선 (진한 색상)
+    fig4.add_trace(go.Scatter(
+        x=daily_total['기준일자'],
+        y=daily_total['7일_이동평균'],
+        mode='lines',
+        name='7일 이동평균',
+        line=dict(color='crimson', width=3)
+    ))
+    
+    # 그래프 레이아웃 설정
+    fig4.update_layout(
+        title="📉 전체 박스오피스 일별 총 관객수 및 7일 이동평균 추이",
+        xaxis_title="기준일자",
+        yaxis_title="관객수",
+        hovermode="x unified"
+    )
+    
+    # Streamlit 화면에 네 번째 그래프를 출력합니다.
+    st.plotly_chart(fig4, use_container_width=True)
+    
+    # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
+    st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 주말/평일 변동성이 제거된 전체 극장가 관객 흐름, 성수기/비성수기 트렌드 변화 등을 적어주세요.)")
