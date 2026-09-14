@@ -212,47 +212,48 @@ with tab5:
     st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 연중 극장가 최고 성수기 월과 비성수기 월 비교, 월별 관객 규모 패턴 등을 적어주세요.)")
 
 with tab6:
-    # --- [여섯 번째 그래프: 캘린더 히트맵] ---
+    # --- [수정된 여섯 번째 그래프: 안전한 캘린더 히트맵 (go.Heatmap 사용)] ---
     
-    # 1. 일별 합계 데이터에 주차, 요일, 날짜 텍스트 정보를 생성합니다.
     calendar_df = daily_total.copy()
     
-    # 요일명을 한글로 지정 (월요일 ~ 일요일 순서 유지)
+    # 요일 변환 (월: 0 ~ 일: 6)
     weekday_map = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금', 5: '토', 6: '일'}
     calendar_df['요일'] = calendar_df['기준일자'].dt.weekday.map(weekday_map)
     
-    # 월(YYYY-MM)과 월 내 주차 번호를 조합하여 Y축 라벨로 사용합니다.
-    # 예: '2023-01 (1주차)'
+    # Y축 기준: YYYY-MM N주차
     calendar_df['월'] = calendar_df['기준일자'].dt.strftime('%Y-%m')
     calendar_df['주차'] = calendar_df['기준일자'].apply(lambda d: (d.day - 1) // 7 + 1)
     calendar_df['월_주차'] = calendar_df['월'] + " " + calendar_df['주차'].astype(str) + "주차"
     
-    # 날짜 텍스트 (yyyy-mm-dd)
+    # yyyy-mm-dd 텍스트 저장
     calendar_df['날짜_str'] = calendar_df['기준일자'].dt.strftime('%Y-%m-%d')
     
-    # 2. 요일 순서를 월요일부터 일요일로 정렬 지정
+    # 피벗 테이블을 생성하여 히트맵 전용 2D 배열 생성
+    # 행: 월_주차, 열: 요일, 값: 해당일관객수
+    pivot_z = calendar_df.pivot(index='월_주차', columns='요일', values='해당일관객수')
+    pivot_text = calendar_df.pivot(index='월_주차', columns='요일', values='날짜_str')
+    
+    # 요일 순서를 월~일로 정렬
     weekday_order = ['월', '화', '수', '목', '금', '토', '일']
+    pivot_z = pivot_z.reindex(columns=weekday_order)
+    pivot_text = pivot_text.reindex(columns=weekday_order)
     
-    # 3. Plotly 히트맵 생성
-    fig6 = px.density_heatmap(
-        calendar_df,
-        x='요일',
-        y='월_주차',
-        z='해당일관객수',
-        category_orders={'요일': weekday_order},
-        color_continuous_scale='Reds', # 관객수가 많을수록 붉은색이 진해집니다.
+    # Plotly go.Heatmap을 활용하여 오류 없이 안정적으로 생성
+    fig6 = go.Figure(data=go.Heatmap(
+        z=pivot_z.values,
+        x=weekday_order,
+        y=pivot_z.index,
+        customdata=pivot_text.values,
+        colorscale='Reds',
+        hovertemplate="<b>날짜: %{customdata}</b><br>요일: %{x}<br>총 관객수: %{z:,.0f}명<extra></extra>"
+    ))
+    
+    fig6.update_layout(
         title="🗓️ 일별 총 관객수 캘린더 히트맵 (월~일 순서)",
-        labels={'해당일관객수': '총 관객수', '월_주차': '월 / 주차'},
-        hover_data={'날짜_str': True, '월_주차': False, '요일': True, '해당일관객수': ':,d'}
+        xaxis_title="요일",
+        yaxis_title="월 / 주차",
+        yaxis=dict(autorange="reverse") # 최신 주차가 위에 오도록 배치
     )
-    
-    # 호버 툴팁 라벨 정돈 (마우스를 올리면 yyyy-mm-dd와 관객수가 표시됨)
-    fig6.update_traces(
-        hovertemplate="<b>날짜: %{customdata[0]}</b><br>요일: %{x}<br>총 관객수: %{z:,}명<extra></extra>"
-    )
-    
-    # Y축 최신순 정렬
-    fig6.update_yaxes(autorange="reverse")
     
     # Streamlit 화면에 여섯 번째 그래프를 출력합니다.
     st.plotly_chart(fig6, use_container_width=True)
