@@ -108,9 +108,7 @@ fig_hist = px.histogram(
 )
 
 # 툴팁 설정
-fig_hist.update_traces(
-    hovertemplate="관객 수 구간: %{x}<br>영화 수: %{y}편"
-)
+fig_hist.update_traces(hovertemplate="관객 수 구간: %{x}<br>영화 수: %{y}편")
 
 # 그래프 출력
 st.plotly_chart(fig_hist, use_container_width=True)
@@ -126,4 +124,47 @@ st.markdown("💡 **이 그래프로 알 수 있는 것**")
 st.info(
     f"대부분의 영화는 총 관객 수 **500만 명 이하(주로 100만~300만 명대)** 구간에 밀집해 있는 오른쪽 꼬리가 긴 분포를 보이며, "
     f"가장 많은 관객 수를 기록한 영화는 **'{top_movie_name}'**(총 {top_movie_audi:,.0f}명)입니다."
+)
+
+st.write("")
+st.write("")
+
+# ---------------------------------------------------------
+# 네 번째 그래프: 개봉일 스크린 수 vs 총 관객 수 (산점도)
+# ---------------------------------------------------------
+st.subheader("4. 개봉일 스크린 수와 총 관객 수의 관계")
+
+# Plotly 산점도 생성
+fig_scatter = px.scatter(
+    df,
+    x="first_scrn",
+    y="total_audi",
+    color="genre",  # 장르별 색상 구분
+    hover_name="movieNm",  # 마우스오버 시 영화명 노출
+    hover_data={
+        "first_scrn": ":,.0f",
+        "total_audi": ":,.0f",
+        "genre": True,
+    },
+    title="개봉일 스크린 수 대 총 관객 수",
+    labels={
+        "first_scrn": "개봉일 스크린 수 (개)",
+        "total_audi": "총 관객 수 (명)",
+        "genre": "장르",
+    },
+)
+
+# 마우스오버(툴팁) 레이아웃 설정
+fig_scatter.update_traces(
+    hovertemplate="<b>%{hovertext}</b><br>장르: %{customdata[0]}<br>개봉일 스크린 수: %{x:,.0f}개<br>총 관객 수: %{y:,.0f}명"
+)
+
+# 그래프 출력
+st.plotly_chart(fig_scatter, use_container_width=True)
+
+# 그래프 설명 구역
+st.divider()
+st.markdown("💡 **이 그래프로 알 수 있는 것**")
+st.info(
+    "개봉일 스크린 수가 많을수록 대체로 총 관객 수도 증가하는 양의 상관관계를 보이지만, 스크린 수에 비해 이례적으로 높은 관객 수를 달성한 입소문 흥행작도 확인할 수 있습니다."
 )
