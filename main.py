@@ -1,211 +1,234 @@
 import streamlit as st
+import requests
 import pandas as pd
+import datetime
+import pytz
 import plotly.express as px
-import plotly.graph_objects as go
 
-# --- [1. 데이터 불러오기] 및 [2. 날짜 전처리] ---
+# 페이지 기본 설정 (타이틀, 레이아웃)
+st.set_page_config(
+    page_title="날짜별 박스오피스 순위",
+    page_icon="🎬",
+    layout="wide"
+)
 
-# @st.cache_data를 사용하면 데이터를 한 번만 불러오고 임시 저장(캐싱)해 둡니다.
-# 덕분에 앱에서 버튼을 누르거나 새로고침할 때마다 다시 불러오지 않아 앱이 빨라집니다.
-@st.cache_data
-def load_data():
-    # 깃허브에 있는 CSV 파일 주소
-    url = "https://raw.githubusercontent.com/keep-growing-park/data-science/refs/heads/main/dataset/kobis_1year_boxoffice.csv"
-    
-    # pandas를 이용해 주소에서 직접 데이터를 읽어옵니다.
-    df = pd.read_csv(url)
-    
-    # 결측치(비어있는 데이터)가 포함된 행을 모두 삭제합니다.
-    df = df.dropna()
-    
-    # "기준일자" 컬럼을 텍스트에서 날짜(datetime) 형식으로 바꿔줍니다. (예: 2023-01-01)
-    df['기준일자'] = pd.to_datetime(df['기준일자'])
-    
-    # 전체 데이터를 "기준일자" 순서대로(과거에서 최신 순으로) 정렬합니다.
-    df = df.sort_values(by='기준일자')
-    
-    return df
+# 1. 한국 시간(KST) 기준 '어제' 날짜 계산 (달력의 최대 선택 가능 날짜)
+kst_tz = pytz.timezone('Asia/Seoul')
+now_kst = datetime.datetime.now(kst_tz)
+yesterday_date = (now_kst - datetime.timedelta(days=1)).date()
 
-# 제목 설정
-st.title("🎬 영화 박스오피스 데이터 분석")
+# 2. 사이드바에서 날짜 선택 기능 추가
+st.sidebar.header("🗓️ 날짜 선택")
+selected_date = st.sidebar.date_input(
+    "조회할 날짜를 선택하세요",
+    value=yesterday_date,       # 기본값: 어제
+    max_value=yesterday_date    # 최대 선택 날짜: 어제
+)
 
-# 위에서 만든 함수를 실행해 데이터를 불러옵니다.
-df = load_data()
+# 선택한 날짜 변환
+target_date_str = selected_date.strftime('%Y%m%d')
+target_date_display = selected_date.strftime('%Y년 %m월 %d일')
 
+st.title(f"🎬 {target_date_display} 박스오피스")
 
-# --- [3. 영화 선택 기능] ---
+# 3. secrets에서 인증키 불러오기
+if "KOBIS_KEY" not in st.secrets:
+    st.error("🔑 API 인증키(KOBIS_KEY)가 설정되지 않았습니다. Streamlit Cloud Secrets 또는 .streamlit/secrets.toml 파일을 확인해 주세요.")
+    st.stop()
 
-# 영화명 목록을 '누적관객수' 기준으로 내림차순 정렬하여 만듭니다.
-# 영화별로 가장 높은 누적관객수(최댓값)를 구한 뒤, 숫자가 큰 순서대로 정렬합니다.
-movie_order = df.groupby('영화명')['누적관객수'].max().sort_values(ascending=False).index.tolist()
+api_key = st.secrets["KOBIS_KEY"]
 
-# 사용자가 영화를 고를 수 있도록 드롭다운(선택 상자)을 만듭니다.
-selected_movie = st.selectbox("분석할 영화를 선택하세요:", movie_order)
+# 4. KOBIS API 데이터를 캐싱(기억)하여 요청 최적화하는 함수
+@st.cache_data(ttl=3600)
+def fetch_daily_boxoffice(date_str, key):
+    url = "https://www.kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchDailyBoxOfficeList.json"
+    params = {
+        "key": key,
+        "targetDt": date_str
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code != 200:
+            return None, f"서버 응답 오류 (상태 코드: {response.status_code})"
+            
+        data = response.json()
+        
+        if "faultInfo" in data:
+            fault_msg = data["faultInfo"].get("message", "알 수 없는 오류")
+            return None, f"KOBIS API 오류 발생: {fault_msg}"
+            
+        boxoffice_result = data.get("boxOfficeResult", {})
+        movie_list = boxoffice_result.get("dailyBoxOfficeList", [])
+        
+        if not movie_list:
+            return None, "그날은 아직 집계 전입니다."
+            
+        return movie_list, None
 
-# 사용자가 선택한 영화의 데이터만 따로 뽑아냅니다.
-filtered_df = df[df['영화명'] == selected_movie]
+    except requests.exceptions.RequestException as e:
+        return None, f"네트워크 통신 오류가 발생했습니다: {str(e)}"
+    except Exception as e:
+        return None, f"데이터 처리 중 오류가 발생했습니다: {str(e)}"
 
+# 데이터 불러오기 실행
+movie_data, error_message = fetch_daily_boxoffice(target_date_str, api_key)
 
-# --- [5. 기타 (구역 나누기 및 그래프 그리기)] ---
+# 5. 오류 및 비어있는 데이터 안내 처리
+if error_message:
+    if error_message == "그날은 아직 집계 전입니다.":
+        st.info("ℹ️ 그날은 아직 집계 전입니다.")
+    else:
+        st.error("❌ 박스오피스 데이터를 불러올 수 없습니다.")
+        st.warning(f"**상세 원인:** {error_message}")
+        
+        with st.expander("🛠️ 문제 해결 가이드 (확인할 사항)"):
+            st.write("""
+            1. **Secrets 키 이름 확인:** Streamlit Secrets에 `KOBIS_KEY` 이름으로 올바른 발급 키가 입력되어 있는지 확인해 주세요.
+            2. **발급받은 키 상태 확인:** 영화진흥위원회(KOBIS) 오픈 API 사이트에서 키가 정상 활성화되어 있는지 확인해 주세요.
+            """)
+    st.stop()
 
-# 탭(Tab)으로 구역을 나누어 여러 그래프를 깔끔하게 보여줍니다.
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📈 개별 영화 일별 관객수", 
-    "📊 개별 영화 누적관객수", 
-    "🏆 20일 이상 등재 Top 5 비교",
-    "📉 전체 관객수 7일 이동평균",
-    "📊 월별 전체 관객수 합계"
-])
+# 6. 데이터 가공 (문자열 → 숫자 형변환)
+df = pd.DataFrame(movie_data)
 
-with tab1:
-    # --- [4. 선그래프 그리기] ---
-    
-    # Plotly를 사용해 x축은 '기준일자', y축은 '해당일관객수'로 선 그래프를 만듭니다.
-    fig1 = px.line(
-        filtered_df, 
-        x='기준일자', 
-        y='해당일관객수', 
-        markers=True, # 데이터 포인트마다 점을 찍어서 보기 쉽게 만듭니다.
-        title=f"'{selected_movie}' 해당일관객수 변화"
-    )
-    
-    # Streamlit 화면에 첫 번째 그래프를 출력합니다.
-    st.plotly_chart(fig1, use_container_width=True)
-    
-    # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
-    st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 개봉 후 관객수 감소 추이나 주말/평일 관객수 차이 등을 적어주세요.)")
+numeric_columns = ["rank", "rankInten", "audiCnt", "audiAcc", "scrnCnt", "showCnt"]
+for col in numeric_columns:
+    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
 
-with tab2:
-    # --- [영역차트] ---
-    
-    # Plotly를 사용해 x축은 '기준일자', y축은 '누적관객수'로 영역 차트(Area Chart)를 만듭니다.
-    fig2 = px.area(
-        filtered_df,
-        x='기준일자',
-        y='누적관객수',
-        title=f"'{selected_movie}' 누적관객수 변화"
-    )
-    
-    # 영역의 색상이나 투명도 등을 기본값보다 예쁘게 적용합니다.
-    fig2.update_traces(line_color='royalblue', fillcolor='rgba(65, 105, 225, 0.5)')
-    
-    # Streamlit 화면에 두 번째 그래프를 출력합니다.
-    st.plotly_chart(fig2, use_container_width=True)
-    
-    # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
-    st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 시간이 지남에 따라 누적관객수가 어떻게 쌓였는지, 최종 관객수가 얼마인지 등을 적어주세요.)")
+df = df.sort_values(by="rank", ascending=True)
 
-with tab3:
-    # --- [세 번째 그래프: 조건부 다중 선그래프] ---
-    
-    # 1. 영화별로 TOP10에 등장한 일수(행 수)를 계산합니다.
-    days_count = df.groupby('영화명')['기준일자'].count()
-    
-    # 2. 등장 일수가 20일 이상인 영화들의 목록만 걸러냅니다.
-    long_run_movies = days_count[days_count >= 20].index
-    
-    # 3. 20일 이상 등장한 영화들 중 '누적관객수 최댓값'을 기준으로 내림차순 정렬하고, 상위 5개를 고릅니다.
-    top5_filtered_movies = (
-        df[df['영화명'].isin(long_run_movies)]
-        .groupby('영화명')['누적관객수']
-        .max()
-        .sort_values(ascending=False)
-        .head(5)
-        .index
-        .tolist()
-    )
-    
-    # 4. 상위 5개 영화의 데이터만 추출합니다.
-    top5_df = df[df['영화명'].isin(top5_filtered_movies)]
-    
-    # 5. Plotly multi-line chart 생성
-    fig3 = px.line(
-        top5_df,
-        x='기준일자',
-        y='누적관객수',
-        color='영화명',
-        title="🏆 TOP10 20일 이상 등재 영화 중 누적관객수 Top 5 증가 추이 비교"
-    )
-    
-    # 그래프 선을 약간 두껍게 설정하여 가독성을 높입니다.
-    fig3.update_traces(line=dict(width=2.5))
-    
-    # Streamlit 화면에 세 번째 그래프를 출력합니다.
-    st.plotly_chart(fig3, use_container_width=True)
-    
-    # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
-    st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 20일 이상 장기 흥행한 영화들 중 누적관객수 성장 속도 및 최종 흥행 성과 차이 등을 적어주세요.)")
+# 7. 전날 대비 순위 증감(rankInten) 화살표 표시 가공
+def format_rank_change(val):
+    if val > 0:
+        return f"🔺 {val}"
+    elif val < 0:
+        return f"🔷 {abs(val)}"
+    else:
+        return "-"
 
-with tab4:
-    # --- [네 번째 그래프: 전체 관객수 7일 이동평균선] ---
-    
-    # 1. 기준일자별로 TOP10 영화 전체의 해당일관객수를 합산합니다.
-    daily_total = df.groupby('기준일자')['해당일관객수'].sum().reset_index()
-    
-    # 2. 합계 데이터에 대해 7일 이동평균(Rolling Mean)을 구합니다.
-    daily_total['7일_이동평균'] = daily_total['해당일관객수'].rolling(window=7).mean()
-    
-    # 3. graph_objects를 사용하여 원본 선과 이동평균 선을 겹쳐서 그립니다.
-    fig4 = go.Figure()
-    
-    # 일별 일일 관객수 합계 (연한 색상)
-    fig4.add_trace(go.Scatter(
-        x=daily_total['기준일자'],
-        y=daily_total['해당일관객수'],
-        mode='lines',
-        name='일별 총 관객수',
-        line=dict(color='lightskyblue', width=1.5),
-        opacity=0.6
-    ))
-    
-    # 7일 이동평균선 (진한 색상)
-    fig4.add_trace(go.Scatter(
-        x=daily_total['기준일자'],
-        y=daily_total['7일_이동평균'],
-        mode='lines',
-        name='7일 이동평균',
-        line=dict(color='crimson', width=3)
-    ))
-    
-    # 그래프 레이아웃 설정
-    fig4.update_layout(
-        title="📉 전체 박스오피스 일별 총 관객수 및 7일 이동평균 추이",
-        xaxis_title="기준일자",
-        yaxis_title="관객수",
-        hovermode="x unified"
-    )
-    
-    # Streamlit 화면에 네 번째 그래프를 출력합니다.
-    st.plotly_chart(fig4, use_container_width=True)
-    
-    # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
-    st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 주말/평일 변동성이 제거된 전체 극장가 관객 흐름, 성수기/비성수기 트렌드 변화 등을 적어주세요.)")
+df["rank_change_display"] = df["rankInten"].apply(format_rank_change)
 
-with tab5:
-    # --- [다섯 번째 그래프: 월별 전체 관객수 막대그래프] ---
-    
-    # 1. '기준일자'에서 연-월(YYYY-MM) 정보를 추출하여 새로운 컬럼을 만듭니다.
-    daily_total['연월'] = daily_total['기준일자'].dt.to_period('M').astype(str)
-    
-    # 2. 월(연월) 단위로 그룹화하여 해당일관객수의 총합을 구합니다.
-    monthly_total = daily_total.groupby('연월')['해당일관객수'].sum().reset_index()
-    
-    # 3. Plotly 막대그래프(Bar Chart) 생성
-    fig5 = px.bar(
-        monthly_total,
-        x='연월',
-        y='해당일관객수',
-        title="📊 월별 전체 극장가 총 관객수 합계",
-        labels={'연월': '월(Year-Month)', '해당일관객수': '총 관객수'},
-        text_auto=True # 막대 상단에 자동으로 관객수 수치를 표시합니다.
-    )
-    
-    # 막대 색상 및 레이아웃을 다듬습니다.
-    fig5.update_traces(marker_color='mediumseagreen', textposition='outside')
-    fig5.update_layout(xaxis_type='category') # 월 라벨이 뭉쳐서 생략되지 않도록 범주형으로 설정합니다.
-    
-    # Streamlit 화면에 다섯 번째 그래프를 출력합니다.
-    st.plotly_chart(fig5, use_container_width=True)
-    
-    # 그래프 아래에 '이 그래프로 알 수 있는 것'을 적을 자리를 만들어 둡니다.
-    st.info("💡 **이 그래프로 알 수 있는 것:** (여기에 연중 극장가 최고 성수기 월과 비성수기 월 비교, 월별 관객 규모 패턴 등을 적어주세요.)")
+# 8. 누적 관객수 100만 명 이상 영화명에 트로피(🏆) 추가
+df["movie_name_display"] = df.apply(
+    lambda row: f"{row['movieNm']} 🏆" if row["audiAcc"] >= 1000000 else row["movieNm"],
+    axis=1
+)
+
+# 9. 1위 영화 강조 (지표 카드 3장)
+top_movie = df.iloc[0]
+
+st.subheader("🥇 선택한 날짜의 Box Office 1위 영화")
+st.markdown(f"### **{top_movie['movie_name_display']}**")
+
+col1, col2, col3 = st.columns(3)
+col1.metric(label="일별 관객수", value=f"{top_movie['audiCnt']:,} 명")
+col2.metric(label="누적 관객수", value=f"{top_movie['audiAcc']:,} 명")
+col3.metric(label="스크린 수", value=f"{top_movie['scrnCnt']:,} 개")
+
+st.markdown("---")
+
+# 10. 관객수 상위 5편 막대그래프
+st.subheader("📊 관객수 상위 5개 영화")
+
+top_5_df = df.head(5).copy()
+
+fig = px.bar(
+    top_5_df,
+    x="movieNm",
+    y="audiCnt",
+    text="audiCnt",
+    labels={"movieNm": "영화명", "audiCnt": "일별 관객수(명)"},
+    color="audiCnt",
+    color_continuous_scale="Blues"
+)
+
+fig.update_traces(texttemplate='%{text:,}명', textposition='outside')
+fig.update_layout(xaxis_tickangle=-0, showlegend=False)
+
+st.plotly_chart(fig, use_container_width=True)
+
+st.markdown("---")
+
+# 11. 여섯 번째: 캘린더 히트맵 (월/주차별 x 요일별)
+st.subheader("🗓️ 캘린더 히트맵 (월/주차 × 요일별 관객 수)")
+
+# 선택한 날짜 기준 데이터프레임 생성
+heatmap_df = df.copy()
+heatmap_df["date"] = pd.to_datetime(selected_date)
+
+# 요일 및 주차 추출
+# 요일 순서 지정 (월요일 ~ 일요일)
+day_names_kr = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+heatmap_df["day_name"] = heatmap_df["date"].dt.dayofweek.map(lambda x: day_names_kr[x])
+heatmap_df["day_name"] = pd.Categorical(heatmap_df["day_name"], categories=day_names_kr, ordered=True)
+
+# 월 및 월별 주차 계산 (예: 9월 3주차)
+heatmap_df["month"] = heatmap_df["date"].dt.month
+heatmap_df["week_of_month"] = (heatmap_df["date"].dt.day - 1) // 7 + 1
+heatmap_df["month_week"] = heatmap_df.apply(lambda row: f"{row['month']}월 {row['week_of_month']}주차", axis=1)
+
+# 마우스 오버용 yyyy-mm-dd 포맷 문자열
+heatmap_df["formatted_date"] = heatmap_df["date"].dt.strftime("%Y-%m-%d")
+
+# 요일별 x 월/주차별 그룹화 및 집계 (일관객 합계)
+pivot_agg = heatmap_df.groupby(["month_week", "day_name"], observed=False).agg(
+    total_audi=("audiCnt", "sum"),
+    formatted_date=("formatted_date", "first")
+).reset_index()
+
+# 피벗 테이블 작성 (행: 요일, 열: 월/주차)
+pivot_audi = pivot_agg.pivot(index="day_name", columns="month_week", values="total_audi").fillna(0)
+pivot_date = pivot_agg.pivot(index="day_name", columns="month_week", values="formatted_date").fillna("-")
+
+# 히트맵 생성 (Plotly px.imshow)
+fig_heatmap = px.imshow(
+    pivot_audi,
+    labels=dict(x="월 / 주차", y="요일", color="총 관객수"),
+    x=pivot_audi.columns,
+    y=pivot_audi.index,
+    color_continuous_scale="Reds", # 관객수가 많을수록 진한 빨간색
+    text_auto=False
+)
+
+# Customdata로 yyyy-mm-dd 날짜 전달 및 툴팁(Hover) 설정
+fig_heatmap.update_traces(
+    customdata=pivot_date.values,
+    hovertemplate="<b>날짜: %{customdata}</b><br>요일: %{y}<br>총 관객수: %{z:,}명<extra></extra>"
+)
+
+fig_heatmap.update_layout(
+    height=400,
+    xaxis_title="월 / 주차",
+    yaxis_title="요일",
+    coloraxis_colorbar=dict(title="관객수")
+)
+
+st.plotly_chart(fig_heatmap, use_container_width=True)
+
+st.markdown("---")
+
+# 12. 전체 박스오피스 순위 표 (Table)
+st.subheader("📋 전체 박스오피스 순위")
+
+display_df = df[[
+    "rank", 
+    "rank_change_display", 
+    "movie_name_display", 
+    "openDt", 
+    "audiCnt", 
+    "audiAcc", 
+    "scrnCnt"
+]].copy()
+
+display_df.columns = ["순위", "순위 증감", "영화명", "개봉일", "당일 관객수", "누적 관객수", "스크린수"]
+
+st.dataframe(
+    display_df.style.format({
+        "당일 관객수": "{:,}명",
+        "누적 관객수": "{:,}명",
+        "스크린수": "{:,}개"
+    }),
+    use_container_width=True,
+    hide_index=True
+)
