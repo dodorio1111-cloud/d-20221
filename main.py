@@ -224,3 +224,59 @@ st.plotly_chart(fig5, use_container_width=True)
 st.caption(
     "💡 **이 그래프로 알 수 있는 것:** 월별 총 관객 수의 규모를 한눈에 비교하여, 1년 중 극장가가 가장 활성화되는 달(성수기)과 관객 수가 적은 달(비수기)의 차이를 명확하게 확인할 수 있습니다."
 )
+
+# -------------------------------------------------------------------
+# [9. 여섯 번째 그래프: 캘린더 히트맵 (월-주차 x 요일)]
+# -------------------------------------------------------------------
+st.divider()  # 구분선 추가
+st.header("📌 6. 캘린더 히트맵 - 월-주차 x 요일별 관객 수")
+
+# 1) 날짜 데이터에서 월, 주차, 요일 및 날짜 문자열 추출
+heatmap_df = daily_total.copy()
+heatmap_df["년월"] = heatmap_df["기준일자"].dt.strftime("%Y-%m")
+heatmap_df["주차"] = heatmap_df["기준일자"].dt.isocalendar().week
+heatmap_df["요일_코드"] = heatmap_df["기준일자"].dt.dayofweek  # 0: 월요일 ~ 6: 일요일
+
+# 요일 이름 (월요일부터 일요일 순서 지정)
+day_names = ["월", "화", "수", "목", "금", "토", "일"]
+heatmap_df["요일"] = heatmap_df["요일_코드"].apply(lambda x: day_names[x])
+
+# 마우스 호버 시 보여줄 yyyy-mm-dd 날짜 텍스트
+heatmap_df["날짜_str"] = heatmap_df["기준일자"].dt.strftime("%Y-%m-%d")
+
+# 2) 월-주차 형태의 축 라벨 생성 (예: '2023-01 (W01)')
+heatmap_df["월주차"] = (
+    heatmap_df["년월"]
+    + " (W"
+    + heatmap_df["주차"].astype(str).str.zfill(2)
+    + ")"
+)
+
+# 3) Plotly Heatmap 그리기
+fig6 = px.density_heatmap(
+    heatmap_df,
+    x="월주차",
+    y="요일",
+    z="해당일관객수",
+    category_orders={"요일": day_names},  # 요일을 월요일~일요일 순서로 정렬
+    color_continuous_scale="Reds",  # 관객수가 많을수록 진한 붉은색
+    title="월-주차 및 요일별 일일 총 관객 수 히트맵",
+    hover_data={
+        "월주차": False,
+        "요일": True,
+        "해당일관객수": ":,공",
+        "날짜_str": True,  # 마우스 올렸을 때 yyyy-mm-dd 표시
+    },
+    labels={"날짜_str": "날짜", "해당일관객수": "총 관객수"},
+)
+
+# Y축 레이아웃 가독성 개선
+fig6.update_yaxes(autorange="reversed")  # 월요일이 상단에 오도록 설정
+
+# 그래프 화면 출력
+st.plotly_chart(fig6, use_container_width=True)
+
+# 그래프 설명 문구
+st.caption(
+    "💡 **이 그래프로 알 수 있는 것:** 마우스를 올리면 정확한 날짜(yyyy-mm-dd)를 확인할 수 있으며, 주중/주말 패턴과 특정 공휴일 및 연휴 기간에 관객 수가 집중되는 현상을 진한 색상으로 시각적으로 빠르게 구분할 수 있습니다."
+)
