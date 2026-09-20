@@ -254,5 +254,40 @@ st.plotly_chart(fig_bubble, use_container_width=True)
 st.divider()
 st.markdown("💡 **이 그래프로 알 수 있는 것**")
 st.info(
-    "개봉일 스크린 수가 많을수록 총 관객 수도 많은 경향이 있으며, 버블의 크기(첫 주 관객 수)를 통해 개봉 초반의 폭발적인 흥행세가 최종 흥행 성적에 미치는 영향을 직관적으로 비교해 볼 수 있습니다."
+    "개봉일 스크린 수가 많을수록 총 관객 수도 많은 경향이 있으며, 버블의 크기(첫 주 관객 수)를 통해 개봉 초반의 폭발적인 흥행세가 최종 흥행성적에 미치는 영향을 직관적으로 비교해 볼 수 있습니다."
+)
+
+st.write("")
+st.write("")
+
+# ---------------------------------------------------------
+# 일곱 번째 그래프: 제작 국가 및 장르별 영화 편수 (선버스트)
+# ---------------------------------------------------------
+st.subheader("7. 제작 국가 및 장르별 영화 편수 분포")
+
+# 국가별, 장르별 영화 편수를 집계하기 위해 각 행을 1편으로 지정
+df["movie_count"] = 1
+
+# Plotly 선버스트 차트 생성 (path: 제작 국가 -> 장르)
+fig_sunburst = px.sunburst(
+    df,
+    path=["nation", "genre"],
+    values="movie_count",
+    color="nation",
+    title="제작 국가 → 장르별 영화 편수 (칸 크기 = 영화 편수)",
+)
+
+# 마우스오버(툴팁) 레이아웃 설정
+fig_sunburst.update_traces(
+    hovertemplate="<b>%{label}</b><br>영화 편수: %{value}편<br>상위 대비 비율: %{percentParent:.1%}"
+)
+
+# 그래프 출력
+st.plotly_chart(fig_sunburst, use_container_width=True)
+
+# 그래프 설명 구역
+st.divider()
+st.markdown("💡 **이 그래프로 알 수 있는 것**")
+st.info(
+    "주요 제작 국가별 전체 영화 편수 비중과 더불어, 각 국가 내에서 어떤 장르의 영화가 주로 개봉되고 흥행권에 진입했는지 계층적 구조로 파악할 수 있습니다."
 )
