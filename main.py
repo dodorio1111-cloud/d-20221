@@ -291,3 +291,45 @@ st.markdown("💡 **이 그래프로 알 수 있는 것**")
 st.info(
     "주요 제작 국가별 전체 영화 편수 비중과 더불어, 각 국가 내에서 어떤 장르의 영화가 주로 개봉되고 흥행권에 진입했는지 계층적 구조로 파악할 수 있습니다."
 )
+
+st.write("")
+st.write("")
+
+# ---------------------------------------------------------
+# 여덟 번째 그래프: 10위권 체류 날수 vs 총 관객 수 (산점도)
+# ---------------------------------------------------------
+st.subheader("8. 10위권에 오래 머문 영화는 총 관객도 많은가?")
+
+# Plotly 산점도 생성
+fig_top10_scatter = px.scatter(
+    df,
+    x="days_in_top10",
+    y="total_audi",
+    color="days_in_top10",  # 머문 날수에 따른 연 연속 색상 변화
+    color_continuous_scale="Viridis",
+    hover_name="movieNm",  # 마우스오버 시 영화명 노출
+    hover_data={
+        "days_in_top10": ":,.0f",
+        "total_audi": ":,.0f",
+    },
+    title="10위권에 오래 머문 영화는 총 관객도 많은가?",
+    labels={
+        "days_in_top10": "10위권에 머문 날수 (일)",
+        "total_audi": "총 관객 수 (명)",
+    },
+)
+
+# 마우스오버(툴팁) 레이아웃 설정
+fig_top10_scatter.update_traces(
+    hovertemplate="<b>영화명: %{hovertext}</b><br>10위권 머문 날수: %{x}일<br>총 관객 수: %{y:,.0f}명"
+)
+
+# 그래프 출력
+st.plotly_chart(fig_top10_scatter, use_container_width=True)
+
+# 그래프 설명 구역
+st.divider()
+st.markdown("💡 **이 그래프로 알 수 있는 것**")
+st.info(
+    "10위권에 머문 날수가 길수록 대체로 총 관객 수 도 많아지는 뚜렷한 양의 상관관계를 보여주며, 이는 장기 흥행작의 주요 특징임을 알 수 있습니다."
+)
